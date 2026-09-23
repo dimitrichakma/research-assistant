@@ -92,7 +92,18 @@ per-paper flow the other tabs use.
   actual source text. `langchain-typesafe` was chosen deliberately over
   the raw `typesafe-sdk` - it's a LangChain `Runnable`, composing
   naturally inside LangGraph nodes, even though it's alpha
-  (`0.0.1a3` at time of writing).
+  (`0.0.1a3` at time of writing). `classifier` is a completely separate
+  object from `llm` (its own `TYPESAFE_API_KEY`, never the BYOK key) -
+  every judgment call routed through it costs zero Claude/OpenAI tokens
+  by construction, not just "usually cheaper." Measured, not assumed:
+  the supervisor's jargon/analogy Noul call on a real paper (LORA.pdf)
+  took 1.69s and 0 Claude tokens; the same judgment asked as a freeform
+  reasoning prompt to `claude-sonnet-5` (paper text + "reason step by
+  step") took 6.81s and 38,406 tokens (~$0.08 at Sonnet 5 pricing, for
+  one judgment call) - both landed on the same answer. The 4x latency
+  gap and full token cost come from re-sending the whole paper as
+  context and paying for visible reasoning on a task that's actually a
+  narrow classification, not open-ended generation.
 - Search: `find_quote()` (Level 3) ranks candidate sentences with
   `rank_bm25` (`BM25Okapi`), in-memory only, rebuilt per paper via
   closures in `_build_tools()` (src/tutor.py) - not module-level

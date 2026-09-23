@@ -21,6 +21,7 @@ docs/research_papers
 docs/research_assistant_roadmap.pdf
 docs/research_assistant_notes.pdf
 docs/academic_research_notes.pdf
+docs/typesafe_vs_llm_reasoning.md
 figures/
 
 # Local-only state (Section 10/CLAUDE.md: never committed, never
