@@ -1,0 +1,29 @@
+# OS junk
+.DS_Store
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Secrets
+.env
+
+#docs - copyrighted source papers and generated crops from them,
+# plus the working roadmap/notes PDFs, kept local rather than public
+docs/research_papers
+docs/research_assistant_roadmap.pdf
+docs/research_assistant_notes.pdf
+docs/academic_research_notes.pdf
+figures/
+
+# Local-only state (Section 10/CLAUDE.md: never committed, never
+# shared with the public deployment)
+checkpoints.db
+data/library.db

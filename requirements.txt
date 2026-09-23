@@ -1,0 +1,11 @@
+langchain-anthropic
+python-dotenv
+pydantic
+pymupdf
+langgraph
+rank-bm25
+langgraph-checkpoint-sqlite
+langchain-openai
+streamlit
+langchain-typesafe
+langchain
