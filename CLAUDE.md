@@ -11,16 +11,33 @@ or a quiz).
 
 All five core levels are built and tested against real papers:
 Level 1 (src/parsing.py), Level 2 (src/extract.py), Level 3
-(src/tutor.py), Level 4 (src/swarm.py), Level 4.5 (src/app.py).
+(src/tutor.py), Level 4 (src/swarm.py), Level 4.5 (src/app.py). A
+post-Level-4.5 addition, Find Papers (src/arxiv_search.py), lets a
+visitor search arXiv directly - independent of the upload-gated,
+per-paper flow the other tabs use.
 
 # Tech Stack
 - LLM: Claude via LangChain (`ChatAnthropic`) throughout every level,
   not the raw Anthropic SDK - so no LLM call is bound to one provider's
   SDK. Level 4.5's bring-your-own-key swap is just constructing a
   different ChatModel (`ChatAnthropic` vs. `ChatOpenAI`) - no
-  provider-specific branching anywhere downstream. The OpenAI branch of
-  `get_llm()` (src/app.py) is unverified - no OpenAI key was available
-  while building it, unlike everything else in this project.
+  provider-specific branching anywhere downstream. `get_llm()`
+  (src/app.py) picks each provider's coding/agentic-tuned tier, not its
+  general flagship - `claude-sonnet-5` ("near-Opus quality on coding and
+  agentic work" per Anthropic's own docs) and `gpt-6-sol` (OpenAI's own
+  docs pitch it for "complex coding and agentic workflows") - both at
+  the same $2/$10-per-MTok price point, both verified live against real
+  papers through the actual ReAct agent, not just constructed without
+  error. Two real integration issues only surfaced that way: (1) with
+  `reasoning_effort` set, `.content` comes back as a list of blocks
+  (`thinking`/`text`), not a plain string - fixed once, in
+  `tutor.py`'s `ask_about_paper()` and `swarm.py`'s shared `ask_llm()`,
+  the two places any LLM response text leaves this codebase; (2)
+  `gpt-6-sol`/`gpt-6-astra` 400 on every tool call
+  (`get_section`/`find_quote`/`explain_figure`) unless
+  `ChatOpenAI(..., use_responses_api=True)` is set - OpenAI's reasoning
+  models can't combine function tools with reasoning on the default
+  `/v1/chat/completions` endpoint, only on `/v1/responses`.
 - Agent orchestration: Level 3's ReAct agent uses LangChain's
   `create_agent` (`langchain.agents`) - migrated 2026-09-23 from
   LangGraph's `create_react_agent`, which is deprecated in favor of it.
@@ -133,6 +150,27 @@ Level 1 (src/parsing.py), Level 2 (src/extract.py), Level 3
   growth path is actually reached. `data/library.db` (Stage 2, cross-
   paper library) is planned, not built - don't add it ahead of its own
   trigger (see Rules).
+- arXiv search: the plain `arxiv` PyPI package (src/arxiv_search.py),
+  not routed through an LLM - finding papers by keyword is a lookup,
+  not a judgment or generation task, so neither Claude nor TypeSafe is
+  in this path. Neither of arXiv's own sort modes alone fits "latest
+  papers on X" (checked live): `SubmittedDate` ignores topic match and
+  returns near-random recent papers; `Relevance` finds genuinely
+  on-topic papers but ranks decade-old ones ahead of recent ones. Fixed
+  by pulling a relevance-ranked candidate pool, then re-sorting that
+  pool by publish date client-side - every candidate already cleared
+  the relevance bar, so the re-sort only reorders among genuinely
+  on-topic results. Deliberately NOT `langchain-community`'s
+  `ArxivAPIWrapper` (real, but the package is being sunset, and pulls
+  in ~13 unrelated dependencies for one lookup) and NOT the PyPI package
+  literally named `langchain-arxiv` (checked its actual source before
+  installing: an unfilled cookiecutter boilerplate template from a
+  single unofficial maintainer, imports `langchain_community` and
+  `langchain_google_genai` without declaring either as a dependency -
+  would `ImportError` the moment it's used). A package's name matching
+  what you searched for is not evidence it's the real thing - check
+  the actual source and metadata before trusting an unfamiliar
+  dependency, same discipline as vetting any other new library.
 
 # Project Structure
 ```
@@ -151,11 +189,16 @@ src/swarm.py          Level 4 - supervisor-gated study guide (Send()
                       picks jargon/analogy per paper via TypeSafe Nouls;
                       math gated by a free rule); real interrupt()-based
                       reveal loop; ASK_LLM_TEMPLATE (ChatPromptTemplate)
-src/app.py            Level 4.5 - Streamlit UI: two tabs (Ask Questions -
-                      chat + visible tool_log; Study Guide - supervisor's
-                      picks shown, interrupt-aware reveal loop), thread_id
-                      per session, bring-your-own API key (centered,
-                      Claude or OpenAI), custom CSS
+src/arxiv_search.py   Find Papers - search_arxiv(query): relevance-ranked
+                      candidate pool re-sorted by publish date, no LLM
+                      call (a lookup, not a judgment/generation task)
+src/app.py            Level 4.5 - Streamlit UI: three tabs (Find Papers -
+                      arXiv search, no paper upload needed, the only tab
+                      that makes no LLM call; Ask Questions - chat +
+                      visible tool_log; Study Guide - supervisor's picks
+                      shown, interrupt-aware reveal loop), thread_id per
+                      session, bring-your-own API key gates the whole app
+                      (centered, Claude or OpenAI), custom CSS
 checkpoints.db        SQLite - LangGraph checkpointer (reveal_node's
                       paused state) - LOCAL USE ONLY, gitignored
 docs/                 architecture diagrams (agent_graph.png,
@@ -232,8 +275,18 @@ search by what a figure looked like - not a guessed paper count).
   a fixed count, so a different paper's denser text could fail at a
   smaller batch size than one that worked before.
 - Don't trust that "no error raised" means a feature actually works -
-  verify the real behavior directly. Two confirmed examples this
-  project actually hit: a citations-enabled + structured-output call
-  that succeeds but silently drops all citations, and a `try/except`-
-  wrapped tool whose "clean" error message was hiding a real, repeatable
-  failure across several passing-looking test runs.
+  verify the real behavior directly. Confirmed examples this project
+  actually hit: a citations-enabled + structured-output call that
+  succeeds but silently drops all citations; a `try/except`-wrapped tool
+  whose "clean" error message was hiding a real, repeatable failure
+  across several passing-looking test runs; and swapping in a reasoning
+  model whose `.content` silently changed shape (string -> list of
+  blocks) - constructing the ChatModel with no error thrown proved
+  nothing about whether a real call through it still worked.
+- Before adding any new dependency, read its actual source and metadata
+  (not just that `pip`/`uv` installed it without error) - a package name
+  matching what was searched for is not evidence it's the real thing.
+  Caught once this project: a PyPI package literally named
+  `langchain-arxiv` turned out to be an unfilled cookiecutter template
+  from a single unofficial maintainer that would `ImportError` the
+  moment it was actually used.

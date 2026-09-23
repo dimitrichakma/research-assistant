@@ -12,6 +12,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 
+from arxiv_search import search_arxiv
 from parsing import extract_blocks, extract_columns, extract_visuals
 from swarm import build_graph
 from tutor import ask_about_paper
@@ -117,13 +118,9 @@ st.markdown(
 
 def get_llm(api_key):
     if api_key.startswith("sk-ant-"):
-        return ChatAnthropic(model="claude-opus-4-5-20251101", api_key=api_key)
+        return ChatAnthropic(model="claude-sonnet-5", reasoning_effort="high", api_key=api_key)
     elif api_key.startswith("sk-"):
-        # OpenAI model name not verified against current OpenAI docs - this
-        # branch is untested (no OpenAI key available while building this),
-        # unlike everything else in this project. Check the current model
-        # name before relying on this path.
-        return ChatOpenAI(model="gpt-5.1", api_key=api_key)
+        return ChatOpenAI(model="gpt-6-sol", api_key=api_key, use_responses_api=True)
     else:
         st.error("Doesn't look like a Claude or OpenAI key")
         st.stop()
@@ -181,40 +178,64 @@ if "thread_id" not in st.session_state:
     st.session_state.thread_id = str(uuid.uuid4())
 config = {"configurable": {"thread_id": st.session_state.thread_id}}
 
-# Upload and parse
-if "paper_text" not in st.session_state:
-    uploaded = st.file_uploader("Upload a paper (PDF)", type="pdf")
-    if uploaded:
-        with st.status("Reading the paper...", expanded=True) as status:
-            st.write("Saving upload...")
-            # extract_columns()/extract_visuals()/extract_blocks() all take
-            # a path, not a file-like object - write the upload to a real
-            # temp file rather than change every Level 1 function's
-            # signature to also accept a stream.
-            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-                tmp.write(uploaded.getvalue())
-                tmp_path = tmp.name
+# The three tabs. Find Papers needs no uploaded paper at all - it's an
+# independent arXiv lookup, not a tool on the per-paper ReAct agent (that
+# would mix "about this PDF" and "find me new papers" in one tool-choice
+# decision). Ask Questions and Study Guide still gate on an upload, but
+# now inside their own tab bodies instead of blocking the whole page.
+find_tab, ask_tab, guide_tab = st.tabs(["Find Papers", "Ask Questions", "Study Guide"])
 
-            st.write("Extracting text (Level 1)...")
-            text = extract_columns(tmp_path)
-            st.write("Extracting block structure (Level 1)...")
-            blocks = extract_blocks(tmp_path)
-            st.write("Cropping figures and equations (Level 1)...")
-            visuals = extract_visuals(tmp_path, classifier, output_dir=tempfile.mkdtemp())
-            status.update(label="Ready", state="complete")
+# Find Papers - arXiv search, no LLM call: a lookup, not a judgment or
+# generation task. Relevance-sorted candidate pool re-sorted by publish
+# date client-side (src/arxiv_search.py) - neither of arXiv's own sort
+# modes alone matches "latest papers on X", confirmed live.
+with find_tab:
+    query = st.text_input("What are you looking for?",
+                           placeholder="e.g. latest papers on human-computer interaction")
+    if st.button("Search arXiv") and query:
+        with st.spinner("Searching arXiv..."):
+            st.session_state.arxiv_results = search_arxiv(query)
 
-        os.unlink(tmp_path)
-        st.session_state.paper_text = text
-        st.session_state.blocks = blocks
-        st.session_state.visuals = visuals
-        st.rerun()
-    st.stop()  # nothing below runs until a paper is loaded
-
-# The two tabs
-ask_tab, guide_tab = st.tabs(["Ask Questions", "Study Guide"])
+    if "arxiv_results" in st.session_state:
+        for paper in st.session_state.arxiv_results:
+            with st.container(border=True):
+                st.markdown(f"**{paper['title']}**")
+                st.caption(f"{', '.join(paper['authors'])} · {paper['published']}")
+                summary = paper["summary"].replace("\n", " ")
+                st.write(summary[:400] + ("..." if len(summary) > 400 else ""))
+                st.markdown(f"[Abstract]({paper['url']}) · [PDF]({paper['pdf_url']})")
 
 # Ask Questions - chat, with the tool_log shown, not hidden
 with ask_tab:
+    if "paper_text" not in st.session_state:
+        st.info("Upload a paper to ask questions about it.")
+        uploaded = st.file_uploader("Upload a paper (PDF)", type="pdf")
+        if uploaded:
+            with st.status("Reading the paper...", expanded=True) as status:
+                st.write("Saving upload...")
+                # extract_columns()/extract_visuals()/extract_blocks() all
+                # take a path, not a file-like object - write the upload
+                # to a real temp file rather than change every Level 1
+                # function's signature to also accept a stream.
+                with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                    tmp.write(uploaded.getvalue())
+                    tmp_path = tmp.name
+
+                st.write("Extracting text (Level 1)...")
+                text = extract_columns(tmp_path)
+                st.write("Extracting block structure (Level 1)...")
+                blocks = extract_blocks(tmp_path)
+                st.write("Cropping figures and equations (Level 1)...")
+                visuals = extract_visuals(tmp_path, classifier, output_dir=tempfile.mkdtemp())
+                status.update(label="Ready", state="complete")
+
+            os.unlink(tmp_path)
+            st.session_state.paper_text = text
+            st.session_state.blocks = blocks
+            st.session_state.visuals = visuals
+            st.rerun()
+        st.stop()  # nothing below runs until a paper is loaded
+
     if "chat" not in st.session_state:
         st.session_state.chat = []  # list of {question, answer, tool_log}
 
@@ -239,6 +260,10 @@ with ask_tab:
 
 # Study Guide - the supervisor's decision, then the genuine gated reveal
 with guide_tab:
+    if "paper_text" not in st.session_state:
+        st.info("Upload a paper in the Ask Questions tab first.")
+        st.stop()
+
     if "guide_state" not in st.session_state:
         with st.spinner("Deciding what this paper needs..."):
             st.session_state.guide_state = app.invoke(

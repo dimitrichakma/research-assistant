@@ -176,7 +176,15 @@ def ask_about_paper(llm, classifier, paper_text, blocks, question, your_guess=No
         for msg in result["messages"] if getattr(msg, "tool_calls", None)
         for call in msg.tool_calls
     ]
-    answer = result["messages"][-1].content
+    content = result["messages"][-1].content
+    # With reasoning_effort set, content comes back as a list of blocks
+    # (thinking + text), not a plain string - confirmed live against a
+    # real paper. Pull just the text blocks; a plain string (thinking
+    # off) passes through unchanged.
+    if isinstance(content, list):
+        answer = "".join(block["text"] for block in content if block.get("type") == "text")
+    else:
+        answer = content
     return {"answer": answer, "tool_log": tool_log, "your_guess": your_guess}
 
 
@@ -192,7 +200,7 @@ if __name__ == "__main__":
     text = extract_columns(pdf_path)
     blocks = extract_blocks(pdf_path)
 
-    llm = ChatAnthropic(model="claude-opus-4-5-20251101", max_tokens=1500)
+    llm = ChatAnthropic(model="claude-opus-5-5", reasoning_effort="high", max_tokens=1500)
     classifier = TypeSafeClassifier()
 
     question = input("Ask something about this paper: ")

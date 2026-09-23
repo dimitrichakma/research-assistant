@@ -40,7 +40,14 @@ def build_graph(llm, classifier: TypeSafeClassifier, checkpointer):
 
     def ask_llm(text, instruction):
         messages = ASK_LLM_TEMPLATE.invoke({"text": text, "instruction": instruction})
-        return llm.invoke(messages).content
+        content = llm.invoke(messages).content
+        # With reasoning_effort set, content is a list of blocks (thinking
+        # + text), not a plain string - same issue confirmed live in
+        # tutor.py's ask_about_paper(). Every swarm node routes through
+        # this one helper, so the fix belongs here, not per-node.
+        if isinstance(content, list):
+            return "".join(block["text"] for block in content if block.get("type") == "text")
+        return content
 
     def supervisor_node(state):
         needed = []
@@ -121,7 +128,7 @@ if __name__ == "__main__":
     pdf_path = "docs/research_papers/paper 1.pdf"
     text = extract_columns(pdf_path)
 
-    llm = ChatAnthropic(model="claude-opus-4-5-20251101", max_tokens=1500)
+    llm = ChatAnthropic(model="claude-opus-5-5", reasoning_effort="high", max_tokens=1500)
     classifier = TypeSafeClassifier()
     visuals = extract_visuals(pdf_path, classifier)
 
