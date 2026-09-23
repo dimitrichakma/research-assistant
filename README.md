@@ -46,7 +46,7 @@ A few decisions worth pointing out, because they're the actual engineering, not 
 ## Getting started
 
 ```bash
-git clone <this-repo>
+git clone https://github.com/dimitrichakma/research-assistant.git
 cd research-assistant
 uv sync              # or: pip install -r requirements.txt
 
