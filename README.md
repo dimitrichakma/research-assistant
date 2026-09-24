@@ -1,6 +1,10 @@
 # 📖 Research Paper Reading Assistant
 
+**[Live demo →](https://research-assistant-production-a4ee.up.railway.app)**
+
 A personal research-paper reading assistant that turns a dense PDF into an interactive study guide — **without doing the reading for you**. Every explanation is grounded in a real citation back to the paper's own text, and nothing is revealed until you've engaged first: a guess, or a quiz.
+
+It also contrasts two different agent architectures on purpose: a ReAct agent that iteratively decides which tool to reach for during open-ended Q&A, versus a supervisor that makes one routing decision up front and fans out to fixed generation steps for the structured study guide.
 
 Built level by level, each one tested against real papers before moving to the next — not a weekend prototype.
 
